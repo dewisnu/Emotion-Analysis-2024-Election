@@ -1,1 +1,46 @@
+name: Deploy Emotion Analysis Election 2024 Service Visualisation
 
+on:
+  push:
+    branches:
+      - 'main'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: code checkout
+        uses: actions/checkout@v2
+
+      - name: install the gcloud cli
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GOOGLE_PROJECT }}
+          service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+          export_default_credentials: true
+
+      - name: build and push the docker image
+        env:
+          GOOGLE_PROJECT: ${{ secrets.GOOGLE_PROJECT }}
+        run: |
+          gcloud auth configure-docker asia-southeast2-docker.pkg.dev
+          docker build  --platform linux/amd64 -t asia-southeast2-docker.pkg.dev/$GOOGLE_PROJECT/ci-cd-pipeline/back-end-service-brait:latest .
+          docker push asia-southeast2-docker.pkg.dev/$GOOGLE_PROJECT/ci-cd-pipeline/back-end-service-brait:latest
+
+      - name: deploy to Cloud Run
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          GOOGLE_PROJECT: ${{ secrets.GOOGLE_PROJECT }}
+          SECRET_KEY: ${{secrets.SECRET_KEY}}
+          CREDENTIALS_KEY_JSON: ${{ secrets.CREDENTIALS_KEY_JSON }}
+        run: |
+          gcloud run deploy back-end-service-brait \
+            --image asia-southeast2-docker.pkg.dev/$GOOGLE_PROJECT/ci-cd-pipeline/back-end-service-brait:latest \
+            --platform managed \
+            --region asia-southeast2 \
+            --allow-unauthenticated \
+            --set-env-vars=DATABASE_URL=$DATABASE_URL \
+            --set-env-vars=SECRET_KEY=$SECRET_KEY \
+            --set-env-vars=CREDENTIALS_KEY_JSON=$CREDENTIALS_KEY_JSON \
+            --max-instances=1
+            
+          

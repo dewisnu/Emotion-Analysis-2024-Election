@@ -1,3 +1,5 @@
+import datetime
+
 import folium
 import streamlit as st
 from matplotlib import pyplot as plt
@@ -9,6 +11,45 @@ import altair as alt
 from streamlit_folium import folium_static
 from streamlit_navigation_bar import st_navbar
 from wordcloud import WordCloud
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    pipeline,
+)
+
+responsive_css = """
+    background-color: white;
+    color: black;
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    padding: 10px;
+    width: 90%; 
+    max-width: 300px;
+    height: auto;
+    box-sizing: border-box;
+
+    @media (max-width: 600px) {
+        font-size: 10px;
+        padding: 5px;
+    }
+
+    @media (min-width: 601px) and (max-width: 1024px) {
+        font-size: 12px;
+        padding: 10px;
+    }
+
+    @media (min-width: 1025px) {
+        font-size: 14px;
+        padding: 15px;
+    }
+"""
+
+
+pretrained = "arthd24/indobert_emotion_base_V2"
+
+model = AutoModelForSequenceClassification.from_pretrained(pretrained)
+tokenizer = AutoTokenizer.from_pretrained(pretrained)
+sentiment_analysis = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
 
 MONGO_URI = os.environ.get("MONGO_URI")
 APP_TITLE = 'Emotion Analysis Terhadap Kemenangan Paslon Prabowo-Gibran Pada Pemilihan Presiden 2024'
@@ -67,7 +108,6 @@ def display_map(df):
         columns=['location', 'location_count'],
         key_on='feature.properties.Propinsi',
         line_opacity=0.9,
-        nan_fill_color="Gray",
         line_color="Green",
         line_weight=0.9,
         fill_opacity=1,
@@ -94,10 +134,10 @@ def display_map(df):
                 location_count = 'location_count: ' + '{:,}'.format(df_indexed.loc[province_name, 'location_count'])
                 neutral = 'neutral: ' + '{:,}'.format(df_indexed.loc[province_name, 'Neutral'])
                 anger = 'anger: ' + '{:,}'.format(df_indexed.loc[province_name, 'Anger'])
-                joy = 'lainnya: ' + '{:,}'.format(df_indexed.loc[province_name, 'Joy'])
-                fear = 'marah: ' + '{:,}'.format(df_indexed.loc[province_name, 'Fear'])
-                sad = 'sedih: ' + '{:,}'.format(df_indexed.loc[province_name, 'Sad'])
-                love = 'takut: ' + '{:,}'.format(df_indexed.loc[province_name, 'Love'])
+                joy = 'joy: ' + '{:,}'.format(df_indexed.loc[province_name, 'Joy'])
+                fear = 'fear: ' + '{:,}'.format(df_indexed.loc[province_name, 'Fear'])
+                sad = 'sad: ' + '{:,}'.format(df_indexed.loc[province_name, 'Sad'])
+                love = 'love: ' + '{:,}'.format(df_indexed.loc[province_name, 'Love'])
         except KeyError:
             pass
 
@@ -112,11 +152,12 @@ def display_map(df):
     choropleth.geojson.add_child(
         folium.features.GeoJsonTooltip(
             ['Propinsi', 'location_count', 'neutral', 'anger', 'joy', 'fear', 'love', ],
-            labels=True
+            labels=False,
+            style=("background-color: white; color: black; font-family: arial; font-size: 20px; padding: 10px; ")
         )
     )
 
-    folium_static(map, width=1300, height=500)
+    folium_static(map, width=1450, height=700)
 
 
 def emotion_distribusion(df):
@@ -176,33 +217,30 @@ def generate_wordcloud(text):
     st.pyplot(plt)
 
 
-def main():
-    styles = {
-        "nav": {
-            "background-color": "white",
-            "display": "flex",
 
-            "height": ".01rem"
-        },
-    }
-    options = {
-        'show_menu': False
-    }
-    pages = ['Home']
+
+def main():
 
     load_dotenv()
-    st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon="img.png")
-    page = st_navbar(pages,
-                     styles=styles,
-                     options=options
-                     )
-    st.markdown(f"<h1 style='text-align: center;'>{APP_TITLE}</h1>", unsafe_allow_html=True)
+    st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon="img.png", initial_sidebar_state="expanded", )
     df = get_data()
 
-    st.sidebar.header('Pilih Rentang Tanggal')
+    # Get the current date
+    current_date = datetime.date.today()
+
+    # Get the current year
+    current_year = current_date.year
+
+    # Get the first date of the current year
+    first_date_of_year = datetime.date(current_year, 1, 1)
+
+    # Get the first date of the first month of the current year
+    first_date_of_first_month = datetime.date(current_year, 1, 1)
+
+    st.sidebar.header('Pilih Rentang Tanggal Data')
     min_date = pd.to_datetime(df['created_at']).min().date()
     max_date = pd.to_datetime(df['created_at']).max().date()
-    start_date = st.sidebar.date_input("Tanggal Awal", min_value=min_date, max_value=max_date, value=min_date)
+    start_date = st.sidebar.date_input("Tanggal Awal", min_value=min_date, max_value=max_date, value=first_date_of_first_month)
     end_date = st.sidebar.date_input("Tanggal Akhir", min_value=min_date, max_value=max_date, value=max_date)
 
     filtered_df = df[(pd.to_datetime(df['created_at']).dt.date >= start_date) &
@@ -211,13 +249,20 @@ def main():
     tweet_trends_chart = tweet_trends(filtered_df)
     emotion_distribusion_chart = emotion_distribusion(filtered_df)
 
-    col1, col2 = st.columns([3, 2], gap="medium")
+    col1, col2 = st.columns([2, 1], gap="medium")
     map_data = map_data_manipulation(filtered_df)
 
     with col1:
         st.subheader("Peta Distribusi Jumlah Tweet di Indonesia Berdasarkan Provinsi")
         display_map(map_data)
-        st.subheader("Distribusi Jumlah Kata dari Tweet")
+        st.subheader("Jumlah Tweet Dari Waktu ke Waktu")
+        st.altair_chart(tweet_trends_chart, use_container_width=True)
+    with col2:
+        st.subheader("Distribusi Jumlah Emosi dari tweet")
+        st.altair_chart(emotion_distribusion_chart, use_container_width=True)
+        st.subheader("Word Cloud of Tweets")
+        all_text = " ".join(tweet for tweet in filtered_df['clean_text'])
+        generate_wordcloud(all_text)
         filtered_df['word_count'] = filtered_df['clean_text'].apply(lambda x: len(x.split()))
         word_count_chart = alt.Chart(filtered_df).mark_bar().encode(
             alt.X('word_count', bin=alt.Bin(maxbins=30), title='Jumlah Kata per Tweet'),
@@ -227,15 +272,6 @@ def main():
             height=400
         )
         st.altair_chart(word_count_chart, use_container_width=True)
-        st.write(df)
-    with col2:
-        st.subheader("Distribusi Jumlah Emosi dari tweet")
-        st.altair_chart(emotion_distribusion_chart, use_container_width=True)
-        st.subheader("Jumlah Tweet Dari Waktu ke Waktu")
-        st.altair_chart(tweet_trends_chart, use_container_width=True)
-        st.subheader("Word Cloud of Tweets")
-        all_text = " ".join(tweet for tweet in filtered_df['clean_text'])
-        generate_wordcloud(all_text)
 
 
 if __name__ == "__main__":
